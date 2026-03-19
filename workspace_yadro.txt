@@ -1,0 +1,436 @@
+pr_info("\033[1;32m%s %s %d\033[0m\n", __FILE__, __func__, __LINE__);
+dev_info(dev, "\033[1;32m%s %s %d\033[0m\n", __FILE__, __func__, __LINE__);
+
+regulator dev usb0_vbus; regulator enable; usb reset; dhcp; setenv img_addr 0x400400000; setenv dtb_addr 0x402200000; tftpboot $img_addr /msk_share/a.shimko/Image.zst; tftpboot $dtb_addr  msk_share/a.shimko/MBDELC85x002A-scu.dtb; setenv bootargs 'console=ttyS1,115200 clk_ignore_unused root=/dev/mmcblk0p2 ip=dhcp rw rootwait cpufreq.off=1'; booti ${kernel_addr_r} - ${fdt_addr_r}
+
+---------- via gitlab account ==-
+mattermost: https://chat.yadro.com/yadro/channels/town-square
+---------- 
+
+|---==== SSH ====---|
+ssh-keygen -t rsa
+cat ~/.ssh/id_rsa.pub
+
+udhcpc -i eth0
+ifconfig -a
+
+|---==== docker ====---|
+netrc: https://c.yadro.com/pages/viewpage.action?spaceKey=YSSW&title=Artifactory+usage
+artifactory-spb: https://artifactory-spb.atmosphere.yadro.com/ui/packages
+
+docker login artifactory-nn.atmosphere.yadro.com
+docker pull artifactory-nn.atmosphere.yadro.com/ymp-fw-soc-docker/elct:latest
+docker tag artifactory-nn.atmosphere.yadro.com/ymp-fw-soc-docker/elct:latest docker-elct-image:latest
+
+|---==== wireguard ====---|
+sudo wg-quick up wg0
+sudo wg-quick down wg0
+
+|---==== openVPN3 ====---|
+openvpn3 session-start --config a.shimko.ovpn
+
+openvpn3 sessions-list
+openvpn3 session-manage --session-path [Path] --disconnect
+
+|---==== git ====---|
+git clone --recursive ssh://git@b.yadro.com:7999/elcbsp/ymp-build.git
+sudo resolvectl domain tun0 yadro.com dev.syntacore.com
+git push --force-with-lease
+
+git submodule sync
+git pull --recurse-submodules
+git submodule update --init --recursive
+
+git submodule summary
+
+git push -d origin <branchname>   # Delete remote
+git branch -d <branchname>        # Delete local
+
+git log --left-right --pretty="%m %s" from...to
+
+|---==== buildroot ====---|
+
+cd buildroot
+make menuconfig
+
+---------- busybox
+make busybox-rebuild
+
+---------- util-linux
+make util-linux-rebuild
+----------
+
+cd ..
+make buildroot-build
+
+|---==== remote ====---|
+---------- key-gen
+ssh-keygen -t rsa
+
+---------- ssh
+vim ~/.ssh/config
+```
+# все поля опциональные
+Host SOME_RM  # Алиас для подключения
+    HostName 172.17.29.251  # IP или доменное имя
+    User a.shimko           # Имя пользователя
+    Port 22                 # Порт (если нестандартный)
+    IdentityFile ~/.ssh/id_rsa  # Указание ключа (если не дефолтный)
+```
+---------- key
+ssh-copy-id a.shimko@SOME_RM # для входа без пароля
+
+vi .ssh/authorized_keys
+
+---------- vm
+ssh a.shimko@SOME_RM
+
+---------- knowen host or authorized_keys
+cat ~/.ssh/authorized_keys
+vi ~/.ssh/authorized_keys
+
+-== U-BOOT ==-
+$ make uboot-clean
+$ make uboot-menuconfig
+$ make uboot-build
+$ make uboot-savedefconfig
+$ cp  build-u-boot/defconfig  u-boot/configs/ymp_fpga_defconfig
+
+1. make qemu-build
+2. make -j14 -C build-linux ARCH=riscv CROSS_COMPILE=/usr/bin/riscv64-linux-gnu- ymp/ymp_elct_scr9_fpga-scu.dtb
+3. DTB=build-linux/arch/riscv/boot/dts/ymp/ymp_elct_scr9_qemu-scu.dtb
+4. UBOOT=build-u-boot/u-boot-nodtb.bin
+5. ./build-qemu/qemu-system-riscv64   -bios none   -nographic   -machine elct,mrt=on,scu_ctl=on   -m 4G   -smp 8   -chardev socket,path=/tmp/interconnect,id=ic,server=on,wait=off   -global driver=riscv.ymp.interconnect,property=chardev,value=ic   -object memory-backend-file,id=riscv.elct.sram,size=512K,mem-path=/dev/shm/elct-sram0,share=on   -device loader,force-raw=on,file=sc-fw_jump.bin,addr=0x400000000   -device loader,force-raw=on,file=${UBOOT},addr=0x400200000   -device loader,force-raw=on,file=${DTB},addr=0x402200000  -serial mon:stdio -d guest_errors
+6. make -f qemu-run.mk all
+	make -s -k -j8 -f qemu-run.mk CON2F=1 uboot
+
+-== linux ==-
+$ make linux-savedefconfig
+$ mv build-linux/defconfig linux/arch/riscv/configs/ymp_sdk_defconfig 
+
+Из ymp-build:
+1. DTB=build-linux/arch/riscv/boot/dts/ymp/ymp_elct_scr9_qemu-scu.dtb
+2. KERNEL=build-linux/arch/riscv/boot/Image
+3. ROOTFS=buildroot/output/images/rootfs.cpio.zst
+
+--- bsb
+./build-qemu/qemu-system-riscv64   -bios none   -nographic   -machine elct,mrt=on,scu_ctl=on   -m 4G   -smp 8   -chardev socket,path=/tmp/interconnect,id=ic,server=on,wait=off   -global driver=riscv.ymp.interconnect,property=chardev,value=ic   -object memory-backend-file,id=riscv.elct.sram,size=512K,mem-path=/dev/shm/elct-sram0,share=on   -device loader,force-raw=on,file=sc-fw_jump.bin,addr=0x400000000   -device loader,force-raw=on,file=${KERNEL},addr=0x400200000   -device loader,force-raw=on,file=${DTB},addr=0x402200000   -device loader,force-raw=on,file=${ROOTFS},addr=0x402300000   -serial mon:stdio -s -d guest_errors
+
+--- spi qemu
+./build-qemu/qemu-system-riscv64   -bios none   -nographic   -machine elct,mrt=on,scu_ctl=on   -m 4G   -smp 8   -chardev socket,path=/tmp/interconnect,id=ic,server=on,wait=off   -global driver=riscv.ymp.interconnect,property=chardev,value=ic   -object memory-backend-file,id=riscv.elct.sram,size=512K,mem-path=/dev/shm/elct-sram0,share=on   -device loader,force-raw=on,file=${KERNEL},addr=0x400400000  -device loader,force-raw=on,file=${ROOTFS},addr=0x402300000   -serial mon:stdio -s
+
+-== u-boot + linux ==-
+1. DTB=build-linux/arch/riscv/boot/dts/ymp/ymp_elct_scr9_qemu-scu.dtb
+2. KERNEL=build-linux/arch/riscv/boot/Image
+3. ROOTFS=buildroot/output/images/rootfs.cpio.zst
+4. UBOOT=build-u-boot/u-boot-nodtb.bin
+5. ./build-qemu/qemu-system-riscv64   -bios none   -nographic   -machine elct,mrt=on,scu_ctl=on   -m 4G   -smp 8   -chardev socket,path=/tmp/interconnect,id=ic,server=on,wait=off   -global driver=riscv.ymp.interconnect,property=chardev,value=ic   -object memory-backend-file,id=riscv.elct.sram,size=512K,mem-path=/dev/shm/elct-sram0,share=on   -device loader,force-raw=on,file=sc-fw_jump.bin,addr=0x400000000   -device loader,force-raw=on,file=${KERNEL},addr=0x400400000   -device loader,force-raw=on,file=${DTB},addr=0x402200000 -device loader,force-raw=on,file=${UBOOT},addr=0x400200000  -device loader,force-raw=on,file=${ROOTFS},addr=0x402300000   -serial mon:stdio -d guest_errors
+
+-== secureos ==-
+---------- vm
+ssh a.shimko@172.17.29.251
+ssh a.shimko@VM
+
+---------- Docker install
+sudo apt remove docker docker.io containerd runc
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg lsb-release
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER
+newgrp docker
+sudo chown $USER:$USER /home/
+
+---------- Build
+vim ~/.netrc
+	machine artifactory-nn.atmosphere.yadro.com
+	login a.shimko
+	password cmVmdGtuOjAxOjE3NzcwMjI3NTQ6T0h3cUNlbFhuRHRDc01WeHNQOXdpc0g4ZVdJ
+
+	machine artifactory-spb.atmosphere.yadro.com
+	login a.shimko
+	password cmVmdGtuOjAxOjE3NzcwMjI3NTQ6T0h3cUNlbFhuRHRDc01WeHNQOXdpc0g4ZVdJ
+
+DOCKER_BUILDKIT=1
+make docker-image
+
+git checkout v2.0.0
+git submodule update --init --recursive
+make clean
+make update
+
+CMakeLists.txt:145 <- add_definitions(-DCHECK_SCMI_MESSAGE)
+cp build-linux/arch/riscv/boot/dts/ymp/MBDELC85x002A-scu.dtb secureboot/
+
+vim secureos/options.cmake          CHECK_SCMI_MESSAGE
+
+--- bsb
+make secureos spi-flash-image TARGET=qemu1 KERNEL_DTB_NAME=ymp_elct_scr9_qemu-scu.dtb SECUREOS_DEFS='-DOPT_BYPASS_SECURE_BOOT=ON' LOG_LEVEL_DEFAULT=4
+
+make secureos sys-binaries TARGET=qemu1 BYPASS_SECURE_BOOT=ON CHECK_SCMI_MESSAGE=ON
+
+scp a.shimko@VM:~/ELCT_SecureBoot/build/secureos.bin secureos-qemu_bsb.bin
+
+--- spi qemu
+make spi-flash-image TARGET=qemu1 OPENSBI_BIN_FILE=sc-fw_jump.bin UBOOT_BIN_FILE=u-boot-nodtb.bin KERNEL_DTB_FILE=ymp_elct_scr9_qemu-scu.dtb
+
+scp a.shimko@VM:~/ELCT_SecureBoot/build/spi_boot_image.bin spi_boot_image-qemu.bin
+
+make clean && make spi-flash-image UBOOT_BIN_FILE=u-boot-nodtb.bin KERNEL_DTB_FILE=MBDELC85x002A-scu.dtb TARGET=silicon1 ELCTHAL_LOG_LEVEL_DEFAULT=4 && scp build/spi_boot_image.bin a.shimko@SLT39:secureos && md5sum build/spi_boot_image.bin && md5sum MBDELC85x002A-scu.dtb && md5sum u-boot-nodtb.bin
+
+--- spi slt
+make spi-flash-image UBOOT_BIN_FILE=uboot-ymp_fpga.bin KERNEL_DTB_FILE=MBDELC85x002A-scu.dtb TARGET=silicon1 ELCTHAL_LOG_LEVEL_DEFAULT=4 CHECK_SCMI_MESSAGE=ON 
+
+scp a.shimko@VM:/home/a.shimko/ELCT_SecureBoot/build/spi_boot_image.bin spi_boot_image-slt.bin
+scp spi_boot_image-slt.bin a.shimko@172.17.55.219:~/secureos/spi_boot_image-slt.bin
+
+---------- qemu bsb
+./build-qemu/qemu-system-riscv32 -nographic -machine elct_scu -chardev socket,path=/tmp/interconnect,id=ic -global driver=riscv.ymp.interconnect,property=chardev,value=ic -object memory-backend-file,id=riscv.elct.sram,size=512K,mem-path=/dev/shm/elct-sram0,share=on -device loader,file=secureos-qemu_bsb.bin,addr=0x01300000 -device loader,addr=0x01300000,cpu-num=0 -serial mon:stdio -d guest_errors
+
+./build-qemu/qemu-system-riscv32 -nographic -machine elct_scu -semihosting -semihosting-config enable=on,target=native -global driver=riscv.ymp.sbregs,property=protect_dis,value=off -global driver=riscv.ymp.sbregs,property=uart_dbg,value=off -chardev socket,id=ic,path=/tmp/interconnect -global driver=riscv.ymp.interconnect,property=chardev,value=ic -device loader,file=secureos-qemu_bsb.bin,addr=0x1300000,cpu-num=0 -serial mon:stdio -d guest_errors
+
+---------- qemu flash
+./build-qemu/qemu-system-riscv32 -nographic -machine elct_scu -semihosting -semihosting-config enable=on,target=native -drive format=raw,if=mtd,id=mtd0,bus=0,file=spi_boot_image.bin -device loader,file=elct_bootrom.hex,addr=0x01200000 -chardev socket,path=/tmp/interconnect,id=ic -global driver=riscv.ymp.interconnect,property=chardev,value=ic -global -object -device loader,addr=0x01200000,cpu-num=0 -serial mon:stdio d guest_errors
+
+---------- slt
+cd elct-psv/
+./sltprogram_pmic.sh ~/elct-psv/tools/slt_board/board_cli.py ~/secureos/spi_boot_image-slt.bin
+
+
+|---==== HTG ====---|
+
+1. скачать fpga-bitstream
+2. скачать fpga-scripts
+3. scp нужный битстрим и fpga-scripts на HTG
+4. настроить тактовый генератор
+5. прошить ПЛИС
+6. minicom -D /dev/ttyHTG1
+7. запустить линукс
+
+1. Резервирование стенда на https://atf.dev.yadro.com/tasks/mytask
+	1.1. Choose stend by requrements
+	1.2. Create task
+	1.3. Setup "Name", "Reserv time", "Label name" of HTG or VCU
+2. Host
+	2.1.If git-lfs isn't installed, install git-lfs via https://github.com/git-lfs/git-lfs/blob/main/INSTALLING.md instruction:
+		2.1.1. curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash
+		2.2.2. sudo apt-get install git-lfs
+	2.2. git clone ssh://git@b.yadro.com:7999/elcbsp/fpga-bitstream.git 
+	2.3  cd fpga-bitstream
+	2.4  git lfs pull
+	2.5. cp target binary folder from fpga-bitstream to somewhere
+	2.6. cp to copied target binary folder: fw_jump-elct.bin
+											build-linux/arch/riscv/boot/dts/ymp/ymp_elct_scr9_fpga.dtb 
+											build-u-boot/u-boot-nodtb.binu-boot-nodtb.bin 
+											build-linux/arch/riscv/boot/Image.gz 
+											??/rootfs.cpio.zst 
+	2.7. scp [copied target binary folder] a.shimko@[HTG or VCU IP address]:
+3. Remmina
+	3.1. Take IP addres of label from https://c.yadro.com/pages/viewpage.action?spaceKey=FPGAPROTO&title=FPGA+lab+network
+	3.2. "Add a new connection"
+	3.3. Setup "Protocol" to RDP, "Server" via taken IP address of HTG or VCU, "Username" to a.shimko, "Password" to jLzvT}{8, "Resolution" to "Use client resolution"
+	3.4. "Save and connect" or "Connect" from dashboard
+4. HTG or VCU
+	4.1. "Порядок действий по прошивке ПЛИС и запуску на ней Linux и др. ПО" на https://c.yadro.com/pages/viewpage.action?pageId=879433945 с п.2 т.к. п.1 был выполнен на хосте (см. 2. Host)
+	4.2. прошить клок скриптом из https://b.yadro.com/projects/ELCBSP/repos/fpga-scripts/browse
+		4.2.1. 	cd fpga-scripts/i2c-clk/
+		4.2.2. 	python3 si534x_runner.py -f projects/h/'FROM README'.h -a 0x'FROM README' -b /dev/i2c-'BOARD'
+				example: python3 si534x_runner.py -f projects/h/Si5341-top_elct.cfg.h -a 0x75 -b /dev/i2c-HTG10
+	4.2. прошить на 3МГц
+	4.3. порядок действий
+
+|---==== SLT ====---|
+
+ref: https://b.yadro.com/projects/ELCBSP/repos/ymp-build/browse/doc/slt-boot.md
+
+monitor: https://c.yadro.com/pages/viewpage.action?spaceKey=QPT&title=First+Linux+Start
+./tools/slt_board/board_cli.py soc --rstn 1
+cp -r /home/a.oginskiy/elct-psv ~/
+
+mkdir secureos
+cp ymp-build.../spi_boot_image-slt.bin secureos/
+
+---------- elct-psv
+./sltprogram_pmic.sh ~/elct-psv/tools/slt_board/board_cli.py ~/secureos/spi_boot_image-slt.bin
+./slt-pwcyc_pmic.sh ./tools/slt_board/board_cli.py
+
+./tools/slt_board/board_cli.py soc --rstn 1
+
+---------- psv-tools
+https://artifactory-nn.atmosphere.yadro.com/ui/api/v1/download/contentBrowsing/ymp-psv-tools-doc/psv-doc/cmd_slt.html#burn-flash-from-raspberry-pi
+
+psv-tools/tools/slt_board/board_cli.py power --soc_off && \
+psv-tools/tools/slt_board/board_cli.py flash -m on -a rpi --pwr on -b main -e  && \
+psv-tools/tools/slt_board/board_cli.py flash --wv ~/secureos/spi_boot_image.bin  && \
+psv-tools/tools/slt_board/board_cli.py power --soc_on  && \
+psv-tools/tools/slt_board/board_cli.py soc --rstn 0  && \
+psv-tools/tools/slt_board/board_cli.py flash -m on -a dut --pwr on -b main  && \
+psv-tools/tools/slt_board/board_cli.py soc --rstn 1  && \
+md5sum ../secureos/spi_boot_image.bin && \
+md5sum /shares/tftp/msk_share/a.shimko/Image.zst && \
+md5sum /shares/tftp/msk_share/a.shimko/rootfs.cpio.zst
+
+psv-tools/tools/slt_board/board_cli.py soc --rstn 0  && psv-tools/tools/slt_board/board_cli.py soc --rstn 1
+
+pr_info("\033[1;32m%s %s %d\033[0m\n", __FILE__, __func__, __LINE__);
+dev_info(dev, "\033[1;32m%s %s %d\033[0m\n", __FILE__, __func__, __LINE__);
+
+pr_info("\033[1;32m%s %d\033[0m\n", __func__, __LINE__);
+dev_info(dev, "\033[1;32m%s %d\033[0m\n", __func__, __LINE__);
+
+---------- MSK
+scp build-linux/arch/riscv/boot/Image.zst a.shimko@SLT39:/shares/tftp/msk_share/a.shimko
+scp buildroot/output/images/rootfs.cpio.zst a.shimko@SLT39:/shares/tftp/msk_share/a.shimko
+
+regulator dev usb0_vbus; regulator enable; regulator status -a; usb reset; && setenv netretry yes && setenv autoload no && setenv serverip 192.168.1.1 && dhcp && tftpboot 0x40040c000 /msk_share/a.shimko/Image.zst && tftpboot 0x402300000 /msk_share/a.shimko/rootfs.cpio.zst && booti 0x40040c000 0x402300000:$filesize 0x402200000
+
+scp build-linux/arch/riscv/boot/dts/ymp/MBDELC85x002A-scu.dtb a.shimko@SLT40:/shares/tftp/msk_share/a.shimko
+
+regulator dev usb0_vbus; regulator enable; regulator status -a; usb reset; && setenv netretry yes && setenv autoload no && setenv serverip 192.168.1.1 && dhcp && tftpboot 0x40040c000 /msk_share/a.shimko/Image.zst && tftpboot 0x402200000 msk_share/a.shimko/MBDELC85x002A-scu.dtb && tftpboot 0x402300000 /msk_share/a.shimko/rootfs.cpio.zst && booti 0x40040c000 0x402300000:$filesize 0x402200000
+
+regulator dev usb0_vbus; regulator enable; usb reset; dhcp; setenv img_addr 0x400400000; && setenv dtb_addr 0x402200000 && tftpboot $img_addr msk_share/a.shimko/Image.zst && tftpboot $dtb_addr  msk_share/a.shimko/MBDELC85x002A-scu.dtb && setenv bootargs 'console=ttyS1,115200 clk_ignore_unused root=/dev/mmcblk0p2 ip=dhcp rw rootwait' && booti ${kernel_addr_r} - ${fdt_addr_r}
+
+regulator dev usb0_vbus; regulator enable; usb reset; dhcp; setenv img_addr 0x400400000; && setenv dtb_addr 0x402200000 && tftpboot $img_addr msk_share/a.shimko/Image.zst && tftpboot $dtb_addr  msk_share/a.shimko/MBDELC85x002A-scu.dtb && setenv bootargs 'console=ttyS1,115200 clk_ignore_unused nfsroot=192.168.1.1:/shares/nfs/msk/nfs_share/a.shimko,v3,tcp ip=dhcp rw rootwait cpufreq.off=1' && booti ${kernel_addr_r} - ${fdt_addr_r}
+
+./openocd/boot.sh -e 1000 -i openocd/slt-ftdi.cfg -t openocd/elct_inc_cpu.tcl -k sc-fw_jump.bin -o MBDELC85x002A.dtb -n u-boot-nodtb.bin -l msk_share/a.shimko/Image.zst -h 192.168.1.1 -a "console=ttyS1,115200 clk_ignore_unused nfsroot=192.168.1.1:/shares/nfs/msk/nfs_share/a.shimko,v3,tcp ip=dhcp rw rootwait loglevel=8" -w MODTST850001A_08_REAR_CM_ov5647_slot6.dtb
+
+---------- NN
+scp build-linux/arch/riscv/boot/Image.zst a.shimko@172.31.160.174:/tftpboot/latest/a.shimko/
+scp buildroot/output/images/rootfs.cpio.zst  a.shimko@172.31.160.174:/tftpboot/latest/a.shimko/
+
+regulator dev usb0_vbus; regulator enable; regulator status -a; usb reset; && setenv netretry yes && setenv autoload no && setenv serverip 192.168.1.1 && dhcp && tftpboot 0x40040c000 /tftpboot/latest/a.shimko/Image.zst && tftpboot 0x402300000 /tftpboot/latest/a.shimko/rootfs.cpio.zst && booti 0x40040c000 0x402300000:$filesize 0x402200000
+
+scp build-linux/arch/riscv/boot/Image.zst a.shimko@172.31.160.174:/mnt/tftp_inplace/a.shimko/
+scp buildroot/output/images/rootfs.cpio.zst a.shimko@172.31.160.174:/mnt/tftp_inplace/a.shimko/
+
+regulator dev usb0_vbus; regulator enable; regulator status -a; usb reset; && setenv netretry yes && setenv autoload no && setenv serverip 192.168.1.1 && dhcp && tftpboot 0x40040c000 /inplace/a.shimko/Image.zst && tftpboot 0x402300000 /inplace/a.shimko/rootfs.cpio.zst && booti 0x40040c000 0x402300000:$filesize 0x402200000
+
+---------- MSQ
+scp build-linux/arch/riscv/boot/Image.zst a.shimko@SLT85:/shares/tftp/a.shimko/
+scp buildroot/output/images/rootfs.cpio.zst  a.shimko@SLT85:/shares/tftp/a.shimko/
+
+regulator dev usb0_vbus; regulator enable; regulator status -a; usb reset; && setenv netretry yes && setenv autoload no && setenv serverip 10.15.128.3 && dhcp && tftpboot 0x40040c000 /tftpboot/latest/a.shimko/Image.zst && tftpboot 0x402300000  /tftpboot/latest/a.shimko/rootfs.cpio.zst && booti 0x40040c000 0x402300000:$filesize 0x402200000
+----------
+
+|---==== psv ====---|
+git clone ssh://git@b.yadro.com:7999/yb/elct-psv.git
+git pull --recurse-submodules
+
+
+|---==== tftp ====---|
+
+./openocd/boot.sh -e 1000         -i openocd/jlink-htg960-10.cfg         -t openocd/elct-1scr9l-1scr9h-scu.cfg         -k fw_jump-elct.bin         -o ymp_elct_scr9_fpga-eth.dtb         -n u-boot-nodtb.bin    -h 192.168.1.1        -l /msk_share/a.shimko/Image.zst  -r /msk_share/a.shimko/rootfs.cpio.zst
+
+|---==== checkpatch ====---|
+U-BOOT: .ci/checkpatch.sh ysemi/bsp/v2025.10 HEAD
+Linux: .ci/checkpatch.sh ymp/bsp/sc-v6.12 HEAD
+
+|---==== pmic ====---|
+бинарь прошивки: https://artifactory-nn.atmosphere.yadro.com/ui/native/ymp-generic-psv-slt-resources/slt_fw_build/SLT-ELCT1A0/
+прошить: python3 tools/slt_board/mcu_updater.py -p ~/slt_mcu_firmware_0.0.54.bin
+ребут после прошивки: tools/slt_board/board_cli.py soc --rstn 0
+
+|---==== make ====---|
+1. OOT LKM:
+1.1.
+obj-m += debugfs_example1.o
+all:
+	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+
+1.2.
+make ARCH=riscv CROSS_COMPILE=/usr/bin/riscv64-linux-gnu-* -C . O=../build-linux menuconfig
+make -j$(nproc) ARCH=riscv CROSS_COMPILE=/usr/bin/riscv64-linux-gnu-* -C . O=../build-linux ymp_sdk_defconfig
+make ARCH=riscv CROSS_COMPILE=/usr/bin/riscv64-linux-gnu-* -C . O=../build-linux savedefconfig
+
+make -j$(nproc) ARCH=riscv CROSS_COMPILE=/usr/bin/riscv64-linux-gnu-* -C . O=../build-linux
+make -j$(nproc) ARCH=riscv CROSS_COMPILE=/usr/bin/riscv64-linux-gnu-* -C . O=../build-linux dtbs
+
+
+2. Userspace program
+2.1.
+all:
+	$(CC) -o dw_wdt_test dw_wdt_test.c
+2.2.
+	CC=riscv64-linux-gnu-gcc make
+
+
+|---==== tiger vnc ====---|
+
+ssh a.shimko@172.17.55.233
+tigervncserver -localhost no :0
+tigervncserver -kill :0
+
+1. tigervncserver -kill :0
+2. vi .vnc/xstartup 
+3.
+#! /bin/bash
+
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec dbus-launch xfce4-session
+#exec startx
+4. tigervncserver -localhost no :0
+
+|---==== openOCD and telnet ====---|
+
+
+
+|---==== 5271 ====---|
+perf stat -I 500 -e ymp_ddr_counters/w_total_bytes_event_axi0/ -e ymp_ddr_counters/r_total_bytes_event_axi0/ bash -c 'while true; do true; done'
+
+clk/si534x_runner.py -f clk/7-elct-top-lpddr4-0x75-htg960.h -b /dev/i2c-HTG$JLINK_NUM -a 0x75
+
+// pr_info("----------> Will kill myself\n");
+// u32 *test = (u32 *)0x4DE070000;
+// *test = 0x11223344;
+
+|---==== hwtests ====---|
+1.1 openocd -f openocd/helpers.cfg -f openocd/jlink.cfg -f openocd/elct2/elct-1scr9l-1scr9h-scu.cfg
+2.1 minicom -D /dev/ttyHTG7
+3.1 telnet localhost 4444
+	3.1 > targets 1
+	3.2 > reset halt 
+	3.3 > load_image /home/a.shimko/workspace/elctv2-5271-Linux-DDR-perf-counters/hwtest/lsb/ddr_perf/ddr_perf_port_0_1/build.tablet.fpga9/ddr_perf_port_0_1.elf
+	3.4 > resume
+
+|---==== debug ====---|
+1. WARN_ON_ONCE
+2. pr_debug + kernel dynamic debug
+3. dump_stack();
+
+4. ftrace
+
+---------- gdb-multiarch
+gdb-multiarch build-linux/vmlinux -ex 'target remote localhost:1234' --tui -ex 'layout split'
+
+6. openOCD (jtag) bindto
+
+
+|---==== ticets ====---|
+FW:
+	Labels: SCU team#FW 
+	Epic Link: Platform Services Tasks 
+
+
+|---==== watchdog ====---|
+mount -t debugfs debugfs /sys/kernel/debug/
+echo 1 > /dev/watchdog0
+cat /sys/kernel/debug/1e012000.wdt/registers | grep ccvr
+
+watchdog -T 2 -t 10 /dev/watchdog3
+
+
+|---==== debian ====---|
+# udhcpc
+# /opt/utils/slt-debian-install.sh -t /dev/mmcblk0
+
+|---==== camera ====---|
+
+http://172.17.55.229:8889/MSK-SLT-ELCT1A00039/
+camera
+Sh0wMeCamer@
