@@ -1,0 +1,10 @@
+[user]
+	email = a.shimko@yadro.com
+	name = Artem Shimko
+[sendemail]
+  ; setup for using git send-email; prompts for password
+  smtpuser = a.shimko.dev@gmail.com
+  smtpserver = smtp.gmail.com
+  smtpencryption = tls
+  smtpserverport = 587
+  smtpPass = yxgqgeblbnfrtjpc

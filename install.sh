@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# git
+ln -sf ~/dotfiles/.gitconfig ~/.gitconfig
 
 # ssh
 mkdir ~/.ssh
