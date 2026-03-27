@@ -1,4 +1,6 @@
 settup git for lore to README (may be just link to confluence)
-$(date +%Y%m%d_%H%M%S)
 recovery
 qemu
+docker
+
+check date if file to not backup  more actual file. Might there is need diff between them
