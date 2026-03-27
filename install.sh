@@ -10,26 +10,22 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 sudo apt update
-
-echo "---------- git ----------"
-git --version
-sudo apt install -y git-email
-if [ -f ~/.gitconfig]; then
-	mv ~/.gitconfig ~/.gitconfig.dotfilebak
-fi
-
-ln -sf ~/dotfiles/.gitconfig ~/.gitconfig
-echo "git config 🧙"
-echo "----------     ----------"
+sudo apt upgrade -y
 
 echo "---------- vim ----------"
 if ! command -v vim &> /dev/null; then
 	sudo apt install -y vim
 fi
 vim --version | head -n 1
+
+if ! command -v ctag &> /dev/null; then
+	sudo apt install -y universal-ctags
+fi
+ctags --version
+
 echo "vim installing 🧙"
 
-if [ ! -f ~/.vimrc ]; then
+if [ -f ~/.vimrc ]; then
 	mv ~/.vimrc ~/.vimrc.dotfilebak
 fi
 ln -sf ~/dotfiles/.vimrc ~/.vimrc
@@ -42,7 +38,7 @@ if ! command -v tmux &> /dev/null; then
 fi
 echo "tmux installing 🧙"
 
-if [ ! -f ~/.tmux.conf ]; then
+if [ -f ~/.tmux.conf ]; then
         mv ~/.tmux.conf ~/.tmux.conf.dotfilebak
 fi
 ln -sf ~/dotfiles/.tmux.conf ~/.tmux.conf
@@ -71,24 +67,35 @@ chmod 700 ~/.ssh
 if [ -f ~/.ssh/id_rsa ]; then
         mv ~/.ssh/id_rsa ~/.ssh/id_rsa.dotfilebak
         mv ~/.ssh/id_rsa.pub ~/.ssh/id_rsa.pub.dotfilebak
-        ssh-keygen -t rsa
 fi
 
-echo " id_rsa.pub for GitHub/GitLab/??"
-echo "VVvvvvVV"
-cat ~/.ssh/id_rsa.pub
-echo "^^^^^^^^"
+ssh-keygen -t rsa
 echo "ssh id_rsa 🧙"
 
-if [ -f ~/.ssh/config]; then
+if [ -f ~/.ssh/config ]; then
         mv ~/.ssh/config ~/.ssh/config.dotfilebak
 fi
 
 ln -sf ~/dotfiles/.ssh/config ~/.ssh/config
 chmod 600 ~/.ssh/config
 echo "ssh config 🧙"
-echo "----------     ----------
+echo "----------     ----------"
 
+echo "---------- git ----------"
+git --version
+sudo apt install -y git-email
+if [ -f ~/.gitconfig]; then
+	mv ~/.gitconfig ~/.gitconfig.dotfilebak
+fi
 
-find ~ -name "*.dotfilebak*" -type f 
+ln -sf ~/dotfiles/.gitconfig ~/.gitconfig
+
+git config --global url."git@github.com:".insteadOf "https://github.com/"
+
+echo "git config 🧙"
+echo "----------     ----------"
+
+find ~/ -name "*.dotfilebak*" -type f
 echo "Dotefiles installed"
+
+cat ~/.ssh/id_rsa.pub
